@@ -72,7 +72,7 @@ llm-readiness-platform/
 ### 1. Export your OpenAI API key
 
 ```bash
-export OPENAI_API_KEY=sk-...
+export OPENAI_API_KEY=<YOUR_OPENAI_API_KEY>
 ```
 
 ### 2. Run any evaluation suite
