@@ -1,0 +1,62 @@
+name: Release Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  eval-and-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      MODEL: gpt-4.1-mini
+      PROMPT_ID: checkout_refusal
+      BASELINE_VERSION: "2"
+      CANDIDATE_VERSION: "3"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Sanity check secret exists
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY is not set. Add it in GitHub Secrets."
+            exit 1
+          fi
+
+      - name: Run evals (baseline + candidate)
+        run: |
+          . .venv/bin/activate
+          python -m core.eval_runner evals/refusals.json --model "$MODEL" --prompt-id "$PROMPT_ID" --prompt-version "$BASELINE_VERSION"
+          python -m core.eval_runner evals/refusals.json --model "$MODEL" --prompt-id "$PROMPT_ID" --prompt-version "$CANDIDATE_VERSION"
+
+      - name: Run release gate
+        run: |
+          . .venv/bin/activate
+          python -m core.release_gate \
+            --baseline "artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v000${BASELINE_VERSION}.jsonl" \
+            --candidate "artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v000${CANDIDATE_VERSION}.jsonl" \
+            --policy docs/release_gate_policy.json \
+            --json-out artifacts/gate_summary.json
+
+      - name: Upload gate summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-summary
+          path: artifacts/gate_summary.json
