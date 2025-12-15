@@ -13,12 +13,12 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       MODEL: gpt-4.1-mini
       PROMPT_ID: checkout_refusal
-      BASELINE_VERSION: "2"
-      CANDIDATE_VERSION: "3"
 
     steps:
-      - name: Checkout
+      - name: Checkout (PR branch)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -39,18 +39,53 @@ jobs:
             exit 1
           fi
 
-      - name: Run evals (baseline + candidate)
+      - name: Create baseline worktree from origin/main
+        run: |
+          git fetch origin main
+          git worktree add _baseline origin/main
+
+      # -------------------------
+      # Baseline: run evals on main
+      # -------------------------
+      - name: Run evals on baseline (origin/main)
+        id: baseline_evals
         run: |
           . .venv/bin/activate
-          python -m core.eval_runner evals/refusals.json \
-            --model "$MODEL" \
-            --prompt-id "$PROMPT_ID" \
-            --prompt-version "$BASELINE_VERSION"
+          cd _baseline
 
-          python -m core.eval_runner evals/refusals.json \
-            --model "$MODEL" \
-            --prompt-id "$PROMPT_ID" \
-            --prompt-version "$CANDIDATE_VERSION"
+          python -m core.eval_runner evals/hallucinations.json --model "$MODEL" --prompt-id "$PROMPT_ID"
+          python -m core.eval_runner evals/refusals.json      --model "$MODEL" --prompt-id "$PROMPT_ID"
+          python -m core.eval_runner evals/safety_cases.json  --model "$MODEL" --prompt-id "$PROMPT_ID"
+
+          # Combine the latest artifacts from each suite into one baseline file
+          mkdir -p artifacts
+          H=$(ls -t artifacts/hallucinations__openai_${MODEL}__${PROMPT_ID}_v*.jsonl | head -n 1)
+          R=$(ls -t artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v*.jsonl       | head -n 1)
+          S=$(ls -t artifacts/safety_cases__openai_${MODEL}__${PROMPT_ID}_v*.jsonl   | head -n 1)
+
+          cat "$H" "$R" "$S" > artifacts/combined_baseline.jsonl
+          echo "combined=artifacts/combined_baseline.jsonl" >> $GITHUB_OUTPUT
+
+      # -------------------------
+      # Candidate: run evals on PR branch
+      # -------------------------
+      - name: Run evals on candidate (PR branch)
+        id: candidate_evals
+        run: |
+          . .venv/bin/activate
+
+          python -m core.eval_runner evals/hallucinations.json --model "$MODEL" --prompt-id "$PROMPT_ID"
+          python -m core.eval_runner evals/refusals.json      --model "$MODEL" --prompt-id "$PROMPT_ID"
+          python -m core.eval_runner evals/safety_cases.json  --model "$MODEL" --prompt-id "$PROMPT_ID"
+
+          # Combine the latest artifacts from each suite into one candidate file
+          mkdir -p artifacts
+          H=$(ls -t artifacts/hallucinations__openai_${MODEL}__${PROMPT_ID}_v*.jsonl | head -n 1)
+          R=$(ls -t artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v*.jsonl       | head -n 1)
+          S=$(ls -t artifacts/safety_cases__openai_${MODEL}__${PROMPT_ID}_v*.jsonl   | head -n 1)
+
+          cat "$H" "$R" "$S" > artifacts/combined_candidate.jsonl
+          echo "combined=artifacts/combined_candidate.jsonl" >> $GITHUB_OUTPUT
 
       - name: Run release gate (capture exit code)
         id: gate
@@ -58,8 +93,8 @@ jobs:
           . .venv/bin/activate
           set +e
           python -m core.release_gate \
-            --baseline "artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v000${BASELINE_VERSION}.jsonl" \
-            --candidate "artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v000${CANDIDATE_VERSION}.jsonl" \
+            --baseline "_baseline/${{ steps.baseline_evals.outputs.combined }}" \
+            --candidate "${{ steps.candidate_evals.outputs.combined }}" \
             --policy docs/release_gate_policy.json \
             --json-out artifacts/gate_summary.json
           EXIT_CODE=$?
@@ -72,6 +107,44 @@ jobs:
         with:
           name: gate-summary
           path: artifacts/gate_summary.json
+
+      - name: Comment on PR with gate result
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const path = "artifacts/gate_summary.json";
+            if (!fs.existsSync(path)) {
+              core.warning("gate_summary.json not found; skipping PR comment.");
+              return;
+            }
+            const data = JSON.parse(fs.readFileSync(path, "utf8"));
+
+            const status = data.status || "UNKNOWN";
+            const failures = (data.failures || []).map(f => `- ${f}`).join("\n");
+            const bm = data.baseline_metrics || {};
+            const cm = data.candidate_metrics || {};
+
+            const lines = [
+              `### Release Gate: **${status}**`,
+              "",
+              "**Metrics (baseline → candidate):**",
+              `- hallucination_index: ${(bm.hallucination_index ?? 0).toFixed(2)} → ${(cm.hallucination_index ?? 0).toFixed(2)}`,
+              `- refusal_accuracy: ${(bm.refusal_accuracy ?? 0).toFixed(2)} → ${(cm.refusal_accuracy ?? 0).toFixed(2)}`,
+              `- safety_accuracy: ${(bm.safety_accuracy ?? 0).toFixed(2)} → ${(cm.safety_accuracy ?? 0).toFixed(2)}`,
+              "",
+              failures ? `**Failures:**\n${failures}` : "**Failures:** none",
+              "",
+              "_Full details are available in the `gate-summary` workflow artifact._"
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: lines
+            });
 
       - name: Fail workflow if release gate failed
         if: steps.gate.outputs.exit_code != '0'
