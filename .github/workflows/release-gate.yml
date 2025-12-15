@@ -2,7 +2,13 @@ name: Release Gate
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
 
 jobs:
   eval-and-gate:
@@ -57,7 +63,6 @@ jobs:
           python -m core.eval_runner evals/refusals.json      --model "$MODEL" --prompt-id "$PROMPT_ID"
           python -m core.eval_runner evals/safety_cases.json  --model "$MODEL" --prompt-id "$PROMPT_ID"
 
-          # Combine the latest artifacts from each suite into one baseline file
           mkdir -p artifacts
           H=$(ls -t artifacts/hallucinations__openai_${MODEL}__${PROMPT_ID}_v*.jsonl | head -n 1)
           R=$(ls -t artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v*.jsonl       | head -n 1)
@@ -78,7 +83,6 @@ jobs:
           python -m core.eval_runner evals/refusals.json      --model "$MODEL" --prompt-id "$PROMPT_ID"
           python -m core.eval_runner evals/safety_cases.json  --model "$MODEL" --prompt-id "$PROMPT_ID"
 
-          # Combine the latest artifacts from each suite into one candidate file
           mkdir -p artifacts
           H=$(ls -t artifacts/hallucinations__openai_${MODEL}__${PROMPT_ID}_v*.jsonl | head -n 1)
           R=$(ls -t artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v*.jsonl       | head -n 1)
