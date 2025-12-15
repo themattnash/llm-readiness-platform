@@ -42,19 +42,29 @@ jobs:
       - name: Run evals (baseline + candidate)
         run: |
           . .venv/bin/activate
-          python -m core.eval_runner evals/refusals.json --model "$MODEL" --prompt-id "$PROMPT_ID" --prompt-version "$BASELINE_VERSION"
-          python -m core.eval_runner evals/refusals.json --model "$MODEL" --prompt-id "$PROMPT_ID" --prompt-version "$CANDIDATE_VERSION"
+          python -m core.eval_runner evals/refusals.json \
+            --model "$MODEL" \
+            --prompt-id "$PROMPT_ID" \
+            --prompt-version "$BASELINE_VERSION"
+
+          python -m core.eval_runner evals/refusals.json \
+            --model "$MODEL" \
+            --prompt-id "$PROMPT_ID" \
+            --prompt-version "$CANDIDATE_VERSION"
 
       - name: Run release gate (capture exit code)
         id: gate
-        continue-on-error: true
         run: |
           . .venv/bin/activate
+          set +e
           python -m core.release_gate \
             --baseline "artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v000${BASELINE_VERSION}.jsonl" \
             --candidate "artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v000${CANDIDATE_VERSION}.jsonl" \
             --policy docs/release_gate_policy.json \
             --json-out artifacts/gate_summary.json
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          exit 0
 
       - name: Upload gate summary
         if: always()
@@ -62,7 +72,7 @@ jobs:
         with:
           name: gate-summary
           path: artifacts/gate_summary.json
-      
+
       - name: Fail workflow if release gate failed
-        if: steps.gate.outcome == 'failure'
+        if: steps.gate.outputs.exit_code != '0'
         run: exit 2
