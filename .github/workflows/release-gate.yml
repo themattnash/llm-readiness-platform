@@ -50,9 +50,6 @@ jobs:
           git fetch origin main
           git worktree add _baseline origin/main
 
-      # -------------------------
-      # Baseline: run evals on main
-      # -------------------------
       - name: Run evals on baseline (origin/main)
         id: baseline_evals
         run: |
@@ -68,12 +65,14 @@ jobs:
           R=$(ls -t artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v*.jsonl       | head -n 1)
           S=$(ls -t artifacts/safety_cases__openai_${MODEL}__${PROMPT_ID}_v*.jsonl   | head -n 1)
 
+          echo "Baseline artifacts:"
+          echo "H=$H"
+          echo "R=$R"
+          echo "S=$S"
+
           cat "$H" "$R" "$S" > artifacts/combined_baseline.jsonl
           echo "combined=artifacts/combined_baseline.jsonl" >> $GITHUB_OUTPUT
 
-      # -------------------------
-      # Candidate: run evals on PR branch
-      # -------------------------
       - name: Run evals on candidate (PR branch)
         id: candidate_evals
         run: |
@@ -87,6 +86,11 @@ jobs:
           H=$(ls -t artifacts/hallucinations__openai_${MODEL}__${PROMPT_ID}_v*.jsonl | head -n 1)
           R=$(ls -t artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v*.jsonl       | head -n 1)
           S=$(ls -t artifacts/safety_cases__openai_${MODEL}__${PROMPT_ID}_v*.jsonl   | head -n 1)
+
+          echo "Candidate artifacts:"
+          echo "H=$H"
+          echo "R=$R"
+          echo "S=$S"
 
           cat "$H" "$R" "$S" > artifacts/combined_candidate.jsonl
           echo "combined=artifacts/combined_candidate.jsonl" >> $GITHUB_OUTPUT
@@ -104,6 +108,17 @@ jobs:
           EXIT_CODE=$?
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
           exit 0
+
+      - name: Debug gate result
+        if: always()
+        run: |
+          echo "Gate exit code = ${{ steps.gate.outputs.exit_code }}"
+          echo "---- gate_summary.json ----"
+          if [ -f artifacts/gate_summary.json ]; then
+            cat artifacts/gate_summary.json
+          else
+            echo "gate_summary.json missing"
+          fi
 
       - name: Upload gate summary
         if: always()
