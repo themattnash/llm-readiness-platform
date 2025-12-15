@@ -45,7 +45,9 @@ jobs:
           python -m core.eval_runner evals/refusals.json --model "$MODEL" --prompt-id "$PROMPT_ID" --prompt-version "$BASELINE_VERSION"
           python -m core.eval_runner evals/refusals.json --model "$MODEL" --prompt-id "$PROMPT_ID" --prompt-version "$CANDIDATE_VERSION"
 
-      - name: Run release gate
+      - name: Run release gate (capture exit code)
+        id: gate
+        continue-on-error: true
         run: |
           . .venv/bin/activate
           python -m core.release_gate \
@@ -60,3 +62,7 @@ jobs:
         with:
           name: gate-summary
           path: artifacts/gate_summary.json
+      
+      - name: Fail workflow if release gate failed
+        if: steps.gate.outcome == 'failure'
+        run: exit 2
