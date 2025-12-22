@@ -2,13 +2,11 @@ name: Release Gate
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
   contents: read
   pull-requests: write
-  issues: write
 
 jobs:
   eval-and-gate:
@@ -50,47 +48,61 @@ jobs:
           git fetch origin main
           git worktree add _baseline origin/main
 
+      # -------------------------
+      # Baseline: run evals on main
+      # -------------------------
       - name: Run evals on baseline (origin/main)
         id: baseline_evals
         run: |
           . .venv/bin/activate
           cd _baseline
 
+          mkdir -p artifacts
+
           python -m core.eval_runner evals/hallucinations.json --model "$MODEL" --prompt-id "$PROMPT_ID"
           python -m core.eval_runner evals/refusals.json      --model "$MODEL" --prompt-id "$PROMPT_ID"
           python -m core.eval_runner evals/safety_cases.json  --model "$MODEL" --prompt-id "$PROMPT_ID"
 
-          mkdir -p artifacts
-          H=$(ls -t artifacts/hallucinations__openai_${MODEL}__${PROMPT_ID}_v*.jsonl | head -n 1)
-          R=$(ls -t artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v*.jsonl       | head -n 1)
-          S=$(ls -t artifacts/safety_cases__openai_${MODEL}__${PROMPT_ID}_v*.jsonl   | head -n 1)
+          H=$(ls -t artifacts/hallucinations__openai_${MODEL}__${PROMPT_ID}_v*.jsonl 2>/dev/null | head -n 1)
+          R=$(ls -t artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v*.jsonl       2>/dev/null | head -n 1)
+          S=$(ls -t artifacts/safety_cases__openai_${MODEL}__${PROMPT_ID}_v*.jsonl   2>/dev/null | head -n 1)
 
-          echo "Baseline artifacts:"
-          echo "H=$H"
-          echo "R=$R"
-          echo "S=$S"
+          if [ -z "$H" ] || [ -z "$R" ] || [ -z "$S" ]; then
+            echo "Error: Could not find all required artifact files"
+            echo "H: $H"
+            echo "R: $R"
+            echo "S: $S"
+            exit 1
+          fi
 
           cat "$H" "$R" "$S" > artifacts/combined_baseline.jsonl
           echo "combined=artifacts/combined_baseline.jsonl" >> $GITHUB_OUTPUT
 
+      # -------------------------
+      # Candidate: run evals on PR branch
+      # -------------------------
       - name: Run evals on candidate (PR branch)
         id: candidate_evals
         run: |
           . .venv/bin/activate
 
+          mkdir -p artifacts
+
           python -m core.eval_runner evals/hallucinations.json --model "$MODEL" --prompt-id "$PROMPT_ID"
           python -m core.eval_runner evals/refusals.json      --model "$MODEL" --prompt-id "$PROMPT_ID"
           python -m core.eval_runner evals/safety_cases.json  --model "$MODEL" --prompt-id "$PROMPT_ID"
 
-          mkdir -p artifacts
-          H=$(ls -t artifacts/hallucinations__openai_${MODEL}__${PROMPT_ID}_v*.jsonl | head -n 1)
-          R=$(ls -t artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v*.jsonl       | head -n 1)
-          S=$(ls -t artifacts/safety_cases__openai_${MODEL}__${PROMPT_ID}_v*.jsonl   | head -n 1)
+          H=$(ls -t artifacts/hallucinations__openai_${MODEL}__${PROMPT_ID}_v*.jsonl 2>/dev/null | head -n 1)
+          R=$(ls -t artifacts/refusals__openai_${MODEL}__${PROMPT_ID}_v*.jsonl       2>/dev/null | head -n 1)
+          S=$(ls -t artifacts/safety_cases__openai_${MODEL}__${PROMPT_ID}_v*.jsonl   2>/dev/null | head -n 1)
 
-          echo "Candidate artifacts:"
-          echo "H=$H"
-          echo "R=$R"
-          echo "S=$S"
+          if [ -z "$H" ] || [ -z "$R" ] || [ -z "$S" ]; then
+            echo "Error: Could not find all required artifact files"
+            echo "H: $H"
+            echo "R: $R"
+            echo "S: $S"
+            exit 1
+          fi
 
           cat "$H" "$R" "$S" > artifacts/combined_candidate.jsonl
           echo "combined=artifacts/combined_candidate.jsonl" >> $GITHUB_OUTPUT
@@ -108,17 +120,6 @@ jobs:
           EXIT_CODE=$?
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
           exit 0
-
-      - name: Debug gate result
-        if: always()
-        run: |
-          echo "Gate exit code = ${{ steps.gate.outputs.exit_code }}"
-          echo "---- gate_summary.json ----"
-          if [ -f artifacts/gate_summary.json ]; then
-            cat artifacts/gate_summary.json
-          else
-            echo "gate_summary.json missing"
-          fi
 
       - name: Upload gate summary
         if: always()
@@ -164,6 +165,11 @@ jobs:
               issue_number: context.payload.pull_request.number,
               body: lines
             });
+
+      - name: Cleanup worktree
+        if: always()
+        run: |
+          git worktree remove _baseline --force || true
 
       - name: Fail workflow if release gate failed
         if: steps.gate.outputs.exit_code != '0'
