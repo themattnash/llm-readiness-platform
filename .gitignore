@@ -4,3 +4,9 @@ __pycache__/
 .env
 artifacts/
 .ipynb_checkpoints/
+
+# Local artifacts
+artifacts/
+core/__pycache__/
+**/__pycache__/
+*.pyc
