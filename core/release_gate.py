@@ -166,6 +166,13 @@ def main() -> None:
 
     base_metrics = asdict(compute_reliability_metrics(base_rows))
     cand_metrics = asdict(compute_reliability_metrics(cand_rows))
+    # Backward/forward compatibility for renamed metric
+for m in (base_metrics, cand_metrics):
+    if "hallucination_accuracy" in m and "hallucination_index" not in m:
+        m["hallucination_index"] = m["hallucination_accuracy"]
+    if "hallucination_index" in m and "hallucination_accuracy" not in m:
+        m["hallucination_accuracy"] = m["hallucination_index"]
+
 
     failures = []
     failures.extend(check_minimums(cand_metrics, policy))
