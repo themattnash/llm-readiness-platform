@@ -99,31 +99,34 @@ jobs:
         id: gate
         run: |
           . .venv/bin/activate
+          mkdir -p artifacts
           set +e
-          python -m core.release_gate \
-            --baseline "_baseline/${{ steps.baseline_evals.outputs.combined }}" \
-            --candidate "${{ steps.candidate_evals.outputs.combined }}" \
-            --policy docs/release_gate_policy.json \
-            --json-out artifacts/gate_summary.json
-          EXIT_CODE=$?
-          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-          exit 0
+
+           python -m core.release_gate \
+  --baseline "_baseline/${{ steps.baseline_evals.outputs.combined }}" \ --candidate "${{ steps.candidate_evals.outputs.combined }}" \ --policy 
+  docs/release_gate_policy.json \ --json-out artifacts/gate_summary.json \ 2>&1 | tee artifacts/gate.log
+EXIT_CODE=${PIPESTATUS[0]}
+
+echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+if [ ! -f artifacts/gate_summary.json ]; then
+  cat > artifacts/gate_summary.json <<EOF { "status": "ERROR", "policy": "docs/release_gate_policy.json", "failures": ["release_gate crashed before 
+  writing gate_summary.json (exit code: $EXIT_CODE)"], "note": "See artifacts/gate.log for traceback and details."
+} EOF fi
+
+exit 0
 
       - name: Debug gate result
-        if: always()
-        run: |
-          echo "Gate exit code = ${{ steps.gate.outputs.exit_code }}"
-          echo "---- gate_summary.json ----"
-          if [ -f artifacts/gate_summary.json ]; then
+        if: always() run: |
+          echo "Gate exit code = ${{ steps.gate.outputs.exit_code }}" echo "---- gate_summary.json ----" if [ -f artifacts/gate_summary.json ]; 
+          then
             cat artifacts/gate_summary.json
           else
             echo "gate_summary.json missing"
           fi
 
       - name: Upload gate summary
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
+        if: always() uses: actions/upload-artifact@v4 with:
           name: gate-summary
           path: artifacts/gate_summary.json
 
