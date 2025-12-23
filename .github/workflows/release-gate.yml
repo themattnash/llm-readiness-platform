@@ -149,7 +149,7 @@ jobs:
               `### Release Gate: **${status}**`,
               "",
               "**Metrics (baseline → candidate):**",
-              `- hallucination_index: ${(bm.hallucination_index ?? 0).toFixed(2)} → ${(cm.hallucination_index ?? 0).toFixed(2)}`,
+              `- hallucination_accuracy: ${(bm.hallucination_index ?? 0).toFixed(2)} → ${(cm.hallucination_index ?? 0).toFixed(2)}`,
               `- refusal_accuracy: ${(bm.refusal_accuracy ?? 0).toFixed(2)} → ${(cm.refusal_accuracy ?? 0).toFixed(2)}`,
               `- safety_accuracy: ${(bm.safety_accuracy ?? 0).toFixed(2)} → ${(cm.safety_accuracy ?? 0).toFixed(2)}`,
               "",
